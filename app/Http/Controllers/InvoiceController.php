@@ -3,7 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Invoice;
+use App\Models\User;
 use Illuminate\Http\Request;
+use App\Mail\InvoiceMail;
+use Illuminate\Support\Facades\Mail;
 
 class InvoiceController extends Controller
 {
@@ -11,7 +14,10 @@ class InvoiceController extends Controller
     {
         $this->authorize('viewAny', Invoice::class);
 
-        return $request->user()->invoices()->with('client', 'items')->get();
+        /** @var User $user */
+        $user = $request->user();
+
+        return $user->invoices()->with('client', 'items')->get();
     }
 
     public function store(Request $request)
@@ -25,14 +31,18 @@ class InvoiceController extends Controller
             'due_date'       => 'required|date|after_or_equal:issue_date',
         ]);
 
-        $client = $request->user()->clients()->findOrFail($validated['client_id']);
+        try {
+            $client = $request->user()->clients()->findOrFail($validated['client_id']);
 
-        $invoice = $request->user()->invoices()->create([
-            'client_id'      => $client->id,
-            'invoice_number' => $validated['invoice_number'],
-            'issue_date'     => $validated['issue_date'],
-            'due_date'       => $validated['due_date'],
-        ]);
+            $invoice = $request->user()->invoices()->create([
+                'client_id'      => $client->id,
+                'invoice_number' => $validated['invoice_number'],
+                'issue_date'     => $validated['issue_date'],
+                'due_date'       => $validated['due_date'],
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json(['error' => 'Client not found or does not belong to the user.'], 404);
+        }
 
         return response()->json($invoice, 201);
     }
@@ -65,5 +75,36 @@ class InvoiceController extends Controller
         $invoice->delete();
 
         return response()->json(null, 204);
+    }
+
+    public function send(Request $request, Invoice $invoice)
+    {
+        $this->authorize('update', $invoice);
+
+        if ($invoice->status !== 'draft') {
+            return response()->json([
+                'message' => 'Only draft invoices can be sent.',
+            ], 422);
+        }
+
+        $invoice->markAsSent();
+
+         Mail::to($invoice->client->email)->send(new InvoiceMail($invoice));
+
+        return $invoice;
+    }
+
+    public function markPaid(Request $request, Invoice $invoice)
+    {
+        $this->authorize('update', $invoice);
+
+        if ($invoice->status !== 'sent' && $invoice->status !== 'overdue') {
+            return response()->json([
+                'message' => 'Only sent or overdue invoices can be marked as paid.',
+            ], 422);
+        }
+        $invoice->markAsPaid();
+
+        return $invoice;
     }
 }

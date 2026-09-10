@@ -19,6 +19,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::apiResource('clients', ClientController::class);
     Route::apiResource('invoices', InvoiceController::class);
+    Route::post('/invoices/{invoice}/send', [InvoiceController::class, 'send']);
+Route::post('/invoices/{invoice}/mark-paid', [InvoiceController::class, 'markPaid']);
 
     Route::post('/invoices/{invoice}/items', [InvoiceItemController::class, 'store']);
     Route::put('/invoice-items/{invoiceItem}', [InvoiceItemController::class, 'update']);
